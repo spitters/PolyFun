@@ -15,16 +15,16 @@ public import Mathlib.Algebra.Order.Ring.Defs
 # Vector charges, prices and demands
 
 A charge `c : P.A → ι → ω` with values in the pointwise order on `ι → ω` counts one resource per
-index `i`. Suprema and sums in `ι → ω` are pointwise, so the component `i` of the worst-case cost
-is the worst-case cost at the component charge `fun a => c a i` (`costWith_pi_apply`), and a
-vector bound on the cost is the family of its component bounds (`cost_le_pi_iff`). The budget
-form is `isChargeBound_pi_iff`.
+index `i`. Suprema and sums in `ι → ω` are pointwise. The component `i` of the worst-case cost
+is therefore the worst-case cost at the component charge `fun a => c a i` (`costWith_pi_apply`).
+A vector bound on the cost is the family of its component bounds (`cost_le_pi_iff`), and the
+budget form is `isChargeBound_pi_iff`.
 
 Two monotone additive maps convert vectors of resource counts:
 
-* pricing at nonnegative prices `p : ι → ω`, `u ↦ ∑ i, p i • u i` (`priceHom`), turns a vector
-  bound `u` into the scalar bound `∑ i, p i • u i` at the priced charge
-  `fun a => ∑ i, p i • c a i` (`IsChargeBound.price`, `cost_price_le`);
+* pricing at nonnegative prices `p : ι → ω`, `u ↦ ∑ i, p i * u i` (`priceHom`), turns a vector
+  bound `u` into the scalar bound `∑ i, p i * u i` at the priced charge
+  `fun a => ∑ i, p i * c a i` (`IsChargeBound.price`, `cost_price_le`);
 * the demand map of per-resource demands `d : ι → ι' → ω`, `u ↦ ∑ i, u i • d i` (`demandHom`),
   where `d i` is the use vector over `ι'` of one unit of resource `i`.
 
@@ -32,9 +32,6 @@ A handler whose implementation of each call at `a` has use vector `∑ i, c a i 
 with the demand map as its exchange (`Handler.Certified.ofDemand`). A program with use vector `u`
 then runs through it with use vector `∑ i, u i • d i` (`Handler.isChargeBound_liftM_demand`), and
 two such handlers compose with the composite demand (`Handler.isChargeBound_liftM_demand_comp`).
-
-A call whose answer is ignored costs its charge followed by the continuation, provided the call
-has an answer (`costWith_liftBind_const`, `isChargeBound_liftBind_const_iff`).
 -/
 
 @[expose] public section
@@ -52,26 +49,28 @@ section Hom
 variable {ι ι' ι'' : Type*} [Fintype ι] {ω : Type w} [CommSemiring ω] [PartialOrder ω]
   [IsOrderedRing ω]
 
-/-- Pricing a vector of resource counts at nonnegative prices `p`: `u ↦ ∑ i, p i • u i`. -/
+/-- Pricing a vector of resource counts at nonnegative prices `p`: `u ↦ ∑ i, p i * u i`. -/
 def priceHom (p : ι → ω) (hp : 0 ≤ p) : (ι → ω) →+o ω where
-  toFun u := ∑ i, p i • u i
+  toFun u := ∑ i, p i * u i
   map_zero' := by simp
-  map_add' u v := by simp [smul_add, Finset.sum_add_distrib]
-  monotone' u v h := Finset.sum_le_sum fun i _ => by
-    simp only [smul_eq_mul]
-    exact mul_le_mul_of_nonneg_left (h i) (hp i)
+  map_add' u v := by simp [mul_add, Finset.sum_add_distrib]
+  monotone' u v h := Finset.sum_le_sum fun i _ => mul_le_mul_of_nonneg_left (h i) (hp i)
 
 @[simp]
 theorem priceHom_apply (p : ι → ω) (hp : 0 ≤ p) (u : ι → ω) :
-    priceHom p hp u = ∑ i, p i • u i :=
+    priceHom p hp u = ∑ i, p i * u i :=
   rfl
 
 /-- The demand map of per-resource demands `d i : ι' → ω`: a use vector `u` over `ι` demands
 `∑ i, u i • d i` over `ι'`. -/
 def demandHom (d : ι → ι' → ω) (hd : 0 ≤ d) : (ι → ω) →+o (ι' → ω) where
   toFun u := ∑ i, u i • d i
-  map_zero' := by simp
-  map_add' u v := by simp [add_smul, Finset.sum_add_distrib]
+  map_zero' := by
+    funext j
+    simp [Finset.sum_apply]
+  map_add' u v := by
+    funext j
+    simp [Finset.sum_apply, add_mul, Finset.sum_add_distrib]
   monotone' u v h j := by
     simp only [Finset.sum_apply, Pi.smul_apply, smul_eq_mul]
     exact Finset.sum_le_sum fun i _ => mul_le_mul_of_nonneg_right (h i) (hd i j)
@@ -86,8 +85,9 @@ theorem demandHom_apply (d : ι → ι' → ω) (hd : 0 ≤ d) (u : ι → ω) :
 theorem demandHom_demandHom [Fintype ι'] (d : ι → ι' → ω) (hd : 0 ≤ d) (e : ι' → ι'' → ω)
     (he : 0 ≤ e) (u : ι → ω) :
     demandHom e he (demandHom d hd u) = ∑ i, u i • demandHom e he (d i) := by
-  simp only [demandHom_apply, Finset.sum_apply, Pi.smul_apply, Finset.smul_sum, Finset.sum_smul,
-    smul_smul]
+  funext k
+  simp only [demandHom_apply, Finset.sum_apply, Pi.smul_apply, smul_eq_mul, Finset.sum_mul,
+    Finset.mul_sum, mul_assoc]
   exact Finset.sum_comm
 
 end Hom
@@ -130,10 +130,10 @@ section Price
 variable [Fintype ι] [CommSemiring ω] [PartialOrder ω] [IsOrderedRing ω]
 
 /-- **Pricing a vector budget.** A budget `u` at the vector charge `c` gives, at nonnegative
-prices `p`, the budget `∑ i, p i • u i` at the priced charge `fun a => ∑ i, p i • c a i`. -/
+prices `p`, the budget `∑ i, p i * u i` at the priced charge `fun a => ∑ i, p i * c a i`. -/
 theorem IsChargeBound.price {x : FreeM P α} {c : P.A → ι → ω} {u s : ι → ω} (p : ι → ω)
     (hp : 0 ≤ p) (h : IsChargeBound x c u s) :
-    IsChargeBound x (fun a => ∑ i, p i • c a i) (∑ i, p i • u i) (∑ i, p i • s i) :=
+    IsChargeBound x (fun a => ∑ i, p i * c a i) (∑ i, p i * u i) (∑ i, p i * s i) :=
   h.map (priceHom p hp)
 
 end Price
@@ -145,36 +145,17 @@ variable [Fintype ι] [CommSemiring ω] [CompleteLattice ω] [IsOrderedRing ω]
 /-- **Pricing a vector cost.** The worst-case cost at the priced charge is at most the priced
 worst-case vector cost. -/
 theorem cost_price_le (c : P.A → ι → ω) (p : ι → ω) (hp : 0 ≤ p) (x : FreeM P α) :
-    cost (fun a => ∑ i, p i • c a i) x ≤ ∑ i, p i • cost c x i :=
+    cost (fun a => ∑ i, p i * c a i) x ≤ ∑ i, p i * cost c x i :=
   cost_comp_le (priceHom p hp) c x
 
-/-- A vector bound `u` on the worst-case cost gives the bound `∑ i, p i • u i` at the priced
+/-- A vector bound `u` on the worst-case cost gives the bound `∑ i, p i * u i` at the priced
 charge. -/
 theorem cost_price_le_of_le {c : P.A → ι → ω} (p : ι → ω) (hp : 0 ≤ p) {x : FreeM P α}
     {u : ι → ω} (h : cost c x ≤ u) :
-    cost (fun a => ∑ i, p i • c a i) x ≤ ∑ i, p i • u i :=
+    cost (fun a => ∑ i, p i * c a i) x ≤ ∑ i, p i * u i :=
   (cost_price_le c p hp x).trans ((priceHom p hp).monotone' h)
 
 end PriceValue
-
-/-! ## Calls whose answer is ignored -/
-
-/-- A call at `a` whose answer is ignored, followed by `y`, costs `c a` plus the cost of `y`.
-The call needs an answer: without one it ends every run, `y` is never reached, and the cost is
-`c a` plus the supremum over no answers. -/
-theorem costWith_liftBind_const [AddCommMonoid ω] [CompleteLattice ω] {c : P.A → ω} (a : P.A)
-    [Nonempty (P.B a)] (y : FreeM P α) (k : α → ω) :
-    costWith c (FreeM.liftBind a fun _ => y) k = c a + costWith c y k := by
-  rw [costWith_liftBind, iSup_const]
-
-/-- A call at `a` whose answer is ignored, followed by `y`, is within budget when the call fits
-and `y` is within budget from the amount spent after it. The call needs an answer: without one,
-`y` is never reached and its budget is not implied. -/
-theorem isChargeBound_liftBind_const_iff [Add ω] [LE ω] [Zero ω] {c : P.A → ω} {B s : ω}
-    (a : P.A) [Nonempty (P.B a)] (y : FreeM P α) :
-    IsChargeBound (FreeM.liftBind a fun _ => y) c B s ↔
-      s + c a ≤ B ∧ IsChargeBound y c B (s + c a) := by
-  rw [isChargeBound_liftBind_iff, forall_const]
 
 end FreeM
 
@@ -183,8 +164,8 @@ end FreeM
 namespace Handler
 
 variable {P : PFunctor.{uA, uB}} {Q : PFunctor.{uA₂, uB}} {R : PFunctor.{uA₃, uB}}
-  {ι ι' ι'' : Type*} [Fintype ι] [Fintype ι'] {ω : Type w} [CommSemiring ω] [PartialOrder ω]
-  [IsOrderedRing ω]
+  {ι ι' ι'' : Type*} [Fintype ι] {ω : Type w} [CommSemiring ω] [PartialOrder ω]
+  [IsOrderedRing ω] {α : Type uB}
 
 /-- A handler whose implementation of each call at `a` has use vector at most
 `∑ i, c a i • d i`, certified with the demand map of `d` as its exchange. -/
@@ -207,16 +188,20 @@ theorem isChargeBound_liftM_demand {c : P.A → ι → ω} {e : Q.A → ι' → 
 /-- **Use bounds through two handlers.** Running `x` through `h₁` with demands `d₁` and then
 through `h₂` with demands `d₂` has the use vector of `u` at the composite demands
 `fun i => ∑ j, d₁ i j • d₂ j`. -/
-theorem isChargeBound_liftM_demand_comp {c : P.A → ι → ω} {e : Q.A → ι' → ω}
+theorem isChargeBound_liftM_demand_comp [Fintype ι'] {c : P.A → ι → ω} {e : Q.A → ι' → ω}
     {f : R.A → ι'' → ω} {h₁ : Handler (FreeM Q) P} {h₂ : Handler (FreeM R) Q}
     {d₁ : ι → ι' → ω} {d₂ : ι' → ι'' → ω} (hd₁ : 0 ≤ d₁) (hd₂ : 0 ≤ d₂)
     (hh₁ : ∀ a, (h₁ a).IsChargeBound e (∑ i, c a i • d₁ i))
     (hh₂ : ∀ b, (h₂ b).IsChargeBound f (∑ j, e b j • d₂ j)) {x : FreeM P α} {u : ι → ω}
     (hx : x.IsChargeBound c u) :
     (x.liftM (h₂.comp h₁)).IsChargeBound f (∑ i, u i • ∑ j, d₁ i j • d₂ j) := by
-  have := ((Certified.ofDemand h₂ d₂ hd₂ hh₂).comp (Certified.ofDemand h₁ d₁ hd₁ hh₁)).transfer hx
-  rw [map_zero, Certified.comp_exchange, OrderAddMonoidHom.comp_apply] at this
-  simpa only [Certified.ofDemand, demandHom_demandHom, demandHom_apply] using this
+  let g := (Certified.ofDemand h₂ d₂ hd₂ hh₂).comp (Certified.ofDemand h₁ d₁ hd₁ hh₁)
+  have h := g.transfer hx
+  rw [map_zero] at h
+  have hu : g.exchange u = ∑ i, u i • ∑ j, d₁ i j • d₂ j :=
+    demandHom_demandHom d₁ hd₁ d₂ hd₂ u
+  rw [hu] at h
+  exact h
 
 end Handler
 
